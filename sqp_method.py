@@ -1,10 +1,19 @@
 import warnings
-import casadi as ca 
+import casadi as ca
 import numpy as np
 
-def sqp_method(F1_expr, F2_expr, F3_expr, x0 = None, max_iter = 10, tol = 1e-8):
+
+def sqp_method(
+    F1_expr,
+    F2_expr,
+    F3_expr,
+    x0: np.ndarray = None,
+    max_iter: int = 10,
+    tol: float = 1e-8,
+):
     """
     Implementation of the SQP method. Solves
+
     min  F1(x)
     s.t. F2(x) = 0
          F3(x) >= 0
@@ -12,9 +21,9 @@ def sqp_method(F1_expr, F2_expr, F3_expr, x0 = None, max_iter = 10, tol = 1e-8):
     :param F1_expr: objective function as Casadi expression
     :param F2_expr: equality constraints as Casadi expression
     :param F2_expr: inequality constraints as Casadi expression
-    :param (ndarray) x0: initial guess
-    :param (int) max_iter: maximum number of iterations
-    :param (float) tol: convergence tolerance
+    :param (ndarray, optional) x0: initial guess
+    :param (int, optional) max_iter: maximum number of iterations
+    :param (float, optional) tol: convergence tolerance
     """
     x = ca.vertcat(*ca.symvar(F1_expr))
 
@@ -25,50 +34,54 @@ def sqp_method(F1_expr, F2_expr, F3_expr, x0 = None, max_iter = 10, tol = 1e-8):
     if x0 is None:
         x0 = np.zeros(m1)
 
-    F1_fun = ca.Function('F1_fun', [x], [F1_expr])
-    F2_fun = ca.Function('F2_fun', [x], [F2_expr])
-    F3_fun = ca.Function('F3_fun', [x], [F3_expr])
-    F1_grad = ca.jacobian(F1_expr,x)
-    F2_grad = ca.jacobian(F2_expr,x)
-    F3_grad = ca.jacobian(F3_expr,x)
-    F1_grad_func = ca.Function('F1_grad', [x], [F1_grad])
-    F2_grad_func = ca.Function('F2_grad', [x], [F2_grad])
-    F3_grad_func = ca.Function('F3_grad', [x], [F3_grad])
+    F1_fun = ca.Function("F1_fun", [x], [F1_expr])
+    F2_fun = ca.Function("F2_fun", [x], [F2_expr])
+    F3_fun = ca.Function("F3_fun", [x], [F3_expr])
+    F1_grad = ca.jacobian(F1_expr, x)
+    F2_grad = ca.jacobian(F2_expr, x)
+    F3_grad = ca.jacobian(F3_expr, x)
+    F1_grad_func = ca.Function("F1_grad", [x], [F1_grad])
+    F2_grad_func = ca.Function("F2_grad", [x], [F2_grad])
+    F3_grad_func = ca.Function("F3_grad", [x], [F3_grad])
 
-    lam = ca.MX.sym('lambda', m2)
-    mu = ca.MX.sym('mu', m3)
-
+    lam = ca.MX.sym("lambda", m2)
+    mu = ca.MX.sym("mu", m3)
 
     lagrangian = F1_expr
     lagrangian += ca.dot(lam, F2_expr)
     lagrangian += ca.dot(mu, F3_expr)
 
     H, _ = ca.hessian(lagrangian, x)
-    H_func = ca.Function('H', [x, lam, mu], [H])
+    H_func = ca.Function("H", [x, lam, mu], [H])
 
-    d = ca.MX.sym('d', m1)
+    d = ca.MX.sym("d", m1)
 
     x_k = np.array(x0)
     lam_k = ca.DM.zeros(m2)
     mu_k = ca.DM.zeros(m3)
     converged = False
     n_iter = max_iter
-    for i in range(1,max_iter+1):
+    for i in range(1, max_iter + 1):
         F2_xk, F3_xk = F2_fun(x_k), F3_fun(x_k)
         print(type(F3_xk))
-        F1_grad_xk, F2_grad_xk, F3_grad_xk = F1_grad_func(x_k), F2_grad_func(x_k), F3_grad_func(x_k)
+        F1_grad_xk, F2_grad_xk, F3_grad_xk = (
+            F1_grad_func(x_k),
+            F2_grad_func(x_k),
+            F3_grad_func(x_k),
+        )
         H_xk = H_func(x_k, lam_k, mu_k)
 
-        objective = 0.5 * d.T @ H_xk @ d + ca.dot(F1_grad_xk.T,d)
+        objective = 0.5 * d.T @ H_xk @ d + ca.dot(F1_grad_xk.T, d)
         eq_constraints = F2_grad_xk @ d + F2_xk
         ineq_constraints = F3_grad_xk @ d + F3_xk
 
-        qp = {'f': objective, 'g': ca.vertcat(eq_constraints,ineq_constraints), 'x': d}
-        qp_solver = ca.qpsol('sqp_qp_solver', 'qpoases', qp)
-        sol = qp_solver(ubg = ca.vertcat(ca.GenDM_zeros(m2),ca.DM_inf(m3)), lbg = ca.vertcat(ca.GenDM_zeros(m2),ca.GenDM_zeros(m3)))
-        print(sol)
-        print(x_k,sol['x'].full().squeeze())
-        update = sol['x'].full().squeeze()
+        qp = {"f": objective, "g": ca.vertcat(eq_constraints, ineq_constraints), "x": d}
+        qp_solver = ca.qpsol("sqp_qp_solver", "qpoases", qp)
+        sol = qp_solver(
+            ubg=ca.vertcat(ca.GenDM_zeros(m2), ca.DM_inf(m3)),
+            lbg=ca.vertcat(ca.GenDM_zeros(m2), ca.GenDM_zeros(m3)),
+        )
+        update = sol["x"].full().squeeze()
         x_k += update
 
         if np.linalg.norm(update) < tol:
@@ -79,5 +92,10 @@ def sqp_method(F1_expr, F2_expr, F3_expr, x0 = None, max_iter = 10, tol = 1e-8):
 
     if not converged:
         warnings.warn(f"SQP method did not converge in {n_iter} iterations")
-        
-    return {'x': x_k, 'F1':F1_fun(x_k).full().item() , 'n_iter': n_iter, 'converged': converged}
+
+    return {
+        "x": x_k,
+        "F1": F1_fun(x_k).full().item(),
+        "n_iter": n_iter,
+        "converged": converged,
+    }
