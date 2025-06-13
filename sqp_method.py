@@ -10,7 +10,7 @@ def sqp_method(
     x0: np.ndarray = None,
     max_iter: int = 10,
     tol: float = 1e-8,
-):
+) -> dict:
     """
     Implementation of the SQP method. Solves
 
@@ -20,7 +20,7 @@ def sqp_method(
 
     :param F1_expr: objective function as Casadi expression
     :param F2_expr: equality constraints as Casadi expression
-    :param F2_expr: inequality constraints as Casadi expression
+    :param F3_expr: inequality constraints as Casadi expression
     :param (ndarray, optional) x0: initial guess
     :param (int, optional) max_iter: maximum number of iterations
     :param (float, optional) tol: convergence tolerance
@@ -57,8 +57,8 @@ def sqp_method(
     d = ca.MX.sym("d", m1)
 
     x_k = np.array(x0)
-    lam_k = ca.DM.zeros(m2)
-    mu_k = ca.DM.zeros(m3)
+    lam_k = np.zeros(m2)
+    mu_k = np.zeros(m3)
     converged = False
     n_iter = max_iter
     for i in range(1, max_iter + 1):
@@ -82,7 +82,10 @@ def sqp_method(
             lbg=ca.vertcat(ca.GenDM_zeros(m2), ca.GenDM_zeros(m3)),
         )
         update = sol["x"].full().squeeze()
+        update_dual = sol['lam_g'].full().squeeze()
         x_k += update
+        lam_k = update_dual[:m2].copy()
+        mu_k = update_dual[m2:].copy()
 
         if np.linalg.norm(update) < tol:
             converged = True
@@ -95,7 +98,11 @@ def sqp_method(
 
     return {
         "x": x_k,
+        "lambda": lam_k,
+        "mu": mu_k,
         "F1": F1_fun(x_k).full().item(),
+        "F2": F2_fun(x_k).full().squeeze(),
+        "F3": F3_fun(x_k).full().squeeze(),
         "n_iter": n_iter,
         "converged": converged,
     }
