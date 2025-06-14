@@ -137,7 +137,7 @@ class CarModel:
         self.controls = controls
         self.states = states
         self.B = B
-        self.L = 2 # example length of car
+        self.L = 2  # example length of car
 
     def get_system(self):
         """
@@ -234,19 +234,24 @@ class CarModel:
         else:
             return traj
 
-    def animate(
-        self, controls, x0, t_grid, speedup=1, smoothing=1, filename="car_animation.mp4"
+    def plot_trajectory(
+        self,
+        controls,
+        x0,
+        t_grid,
+        track_params=None,
+        track_limits=None,
+        smoothing=1,
+        filename=None,
     ):
-        """
-        Animate car trajectory given controls
-
-        :param (np.ndarray) controls: controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
-        :param (np.ndarray) x0: initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
-        :param (np.ndarray) t_grid: time grid
-        :param (float) speedup: factor to speed video up by 
-        :param (int) smoothing: smoothes the trajectory by decreasing the size of the integration interval
-        :param (string) filename: filename for rendered video (must end in .mp4!)
-        """
+        if track_params is not None:
+            assert track_limits is not None, "boundary limits needed"
+            Pl, Pu = self.make_track(*track_params)
+            xs = np.linspace(*track_limits, 500)
+            Pl_func = ca.Function("Pl", [self.states], [Pl])
+            Pu_func = ca.Function("Pu", [self.states], [Pu])
+            track_upper = [Pu_func(xi).full().item() for xi in xs]
+            track_lower = [Pl_func(xi).full().item() for xi in xs]
         self.L = 2
         if smoothing == 1:
             trajectory = self.trajectory(controls, x0, t_grid)
@@ -255,20 +260,93 @@ class CarModel:
                 controls, x0, t_grid, refinement=smoothing, return_grid=True
             )
         fig, ax = plt.subplots()
-        x_max, x_min = np.max(trajectory[:, 0]), np.min(trajectory[:, 0])
-        y_max, y_min = np.max(trajectory[:, 1]), np.min(trajectory[:, 1])
+        if track_params is None:
+            x_max, x_min = np.max(trajectory[:, 0]), np.min(trajectory[:, 0])
+            y_max, y_min = np.max(trajectory[:, 1]), np.min(trajectory[:, 1])
+        else:
+            x_min, x_max = track_limits
+            y_max, y_min = np.max(track_upper) + 1, np.min(track_lower) - 1
         ax.set(xlim=(x_min, x_max), ylim=(y_min, y_max))
-        enhancement = (
-            max(x_max - x_min, y_max - y_min) / self.L * 0.03
-        )  # make car size 3% of the track
-        line = ax.plot(trajectory[0, 0], trajectory[0, 1], linestyle="--")[0]
+        ax.plot(trajectory[:, 0], trajectory[:, 1], color="r")
+        if track_params is not None:
+            ax.plot(xs, track_lower, color="k")
+            ax.plot(xs, track_upper, color="k")
+
+        if filename is not None:
+            fig.savefig(filename)
+        else:
+            plt.show()
+
+    def animate(
+        self,
+        controls,
+        x0,
+        t_grid,
+        track_params=None,
+        track_limits=None,
+        speedup=1,
+        smoothing=1,
+        filename="car_animation.mp4",
+    ):
+        """
+        Animate car trajectory given controls
+
+        :param (np.ndarray) controls: controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
+        :param (np.ndarray) x0: initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
+        :param (np.ndarray) t_grid: time grid
+        :param (tuple) track_params: h1,h2,h3,h4 that define the track
+        :param (tuple) track_limits: limits of the track on the horizontal axis
+        :param (float) speedup: factor to speed video up by
+        :param (int) smoothing: smoothes the trajectory by decreasing the size of the integration interval
+        :param (string) filename: filename for rendered video (must end in .mp4!)
+        """
+        if track_params is not None:
+            assert track_limits is not None, "boundary limits needed"
+            Pl, Pu = self.make_track(*track_params)
+            xs = np.linspace(*track_limits, 500)
+            Pl_func = ca.Function("Pl", [self.states], [Pl])
+            Pu_func = ca.Function("Pu", [self.states], [Pu])
+            track_upper = [Pu_func(xi).full().item() for xi in xs]
+            track_lower = [Pl_func(xi).full().item() for xi in xs]
+
+        self.L = 2
+        if smoothing == 1:
+            trajectory = self.trajectory(controls, x0, t_grid)
+        else:
+            t_grid, trajectory = self.smoothed_trajectory(
+                controls, x0, t_grid, refinement=smoothing, return_grid=True
+            )
+        fig, ax = plt.subplots()
+        if track_params is None:
+            x_max, x_min = np.max(trajectory[:, 0]), np.min(trajectory[:, 0])
+            y_max, y_min = np.max(trajectory[:, 1]), np.min(trajectory[:, 1])
+        else:
+            x_min, x_max = track_limits
+            y_max, y_min = np.max(track_upper) + 1, np.min(track_lower) - 1
+        ax.set(xlim=(x_min, x_max), ylim=(y_min, y_max))
+
+        # make car reasonably sized, independent of x and y axis
+        car_ratio = self.B / self.L
+        frame_width = x_max - x_min
+        frame_height = y_max - y_min
+        renderer = fig.canvas.get_renderer()
+        bbox = ax.get_window_extent(renderer=renderer)
+        display_ratio = (bbox.width / bbox.height) * (frame_height / frame_width)
+        car_length = 0.05 * frame_width
+        car_width = car_ratio * car_length * display_ratio
+
+        ax.plot(trajectory[:, 0], trajectory[:, 1], linestyle="--", color="gray")
+        if track_params is not None:
+            ax.plot(xs, track_lower, color="k")
+            ax.plot(xs, track_upper, color="k")
+        line = ax.plot(trajectory[0, 0], trajectory[0, 1], color="r")[0]
         car = plt.Rectangle(
             (
-                trajectory[0, 0] - (enhancement * self.L / 2),
-                trajectory[0, 1] - (enhancement * self.B / 2),
+                trajectory[0, 0] - (car_length / 2),
+                trajectory[0, 1] - (car_width / 2),
             ),
-            enhancement * self.L,
-            enhancement * self.B,
+            car_length,
+            car_width,
             angle=trajectory[0, 4],
             rotation_point="center",
             color="k",
@@ -281,8 +359,8 @@ class CarModel:
             x_now = trajectory[frame, 0]
             y_now = trajectory[frame, 1]
             angle_now = np.rad2deg(trajectory[frame, 4])
-            car.set_x(x_now - (enhancement * self.L / 2))
-            car.set_y(y_now - (enhancement * self.B / 2))
+            car.set_x(x_now - (car_length / 2))
+            car.set_y(y_now - (car_width / 2))
             car.set_angle(angle_now)
             line.set_xdata(x_until_now)
             line.set_ydata(y_until_now)
@@ -300,6 +378,58 @@ class CarModel:
             fig, update, frames=len(t_grid), interval=avg_dt_ms, blit=True
         )
         ani.save(filename, writer="ffmpeg", fps=fps)
+
+    def make_track(self, h1, h2, h3, h4):
+        x = self.states[0]
+        Pl = ca.if_else(
+            x <= 44,
+            0,
+            ca.if_else(
+                x > 71,
+                0,
+                ca.if_else(
+                    x <= 44.5,
+                    4 * h2 * (x - 44) ** 3,
+                    ca.if_else(
+                        x <= 45,
+                        4 * h2 * (x - 45) ** 3 + h2,
+                        ca.if_else(
+                            x <= 70,
+                            h2,
+                            ca.if_else(
+                                x <= 70.5,
+                                4 * h2 * (70 - x) ** 3 + h2,
+                                4 * h2 * (71 - x) ** 3,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        Pu = ca.if_else(
+            x <= 15,
+            h1,
+            ca.if_else(
+                x <= 15.5,
+                4 * (h3 - h1) * (x - 15) ** 3 + h1,
+                ca.if_else(
+                    x <= 16,
+                    4 * (h3 - h1) * (x - 16) ** 3 + h3,
+                    ca.if_else(
+                        x <= 94,
+                        h3,
+                        ca.if_else(
+                            x <= 94.5,
+                            4 * (h3 - h4) * (94 - x) ** 3 + h3,
+                            ca.if_else(x <= 95, 4 * (h3 - h4) * (95 - x) ** 3 + h4, h4),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        return (Pl, Pu)
 
     @staticmethod
     def is_uniform_grid(grid):
