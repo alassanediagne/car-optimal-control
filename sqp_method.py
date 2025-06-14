@@ -7,12 +7,15 @@ def sqp_method(
     F1_expr,
     F2_expr,
     F3_expr,
+    lbx=None,
+    ubx=None,
     x0: np.ndarray = None,
     max_iter: int = 10,
     tol: float = 1e-8,
+    save_history=False,
 ) -> dict:
     """
-    Implementation of the SQP method. Solves
+    Implementation of the SQP method using the exact Hessian. Solves
 
     min  F1(x)
     s.t. F2(x) = 0
@@ -24,6 +27,7 @@ def sqp_method(
     :param (ndarray, optional) x0: initial guess
     :param (int, optional) max_iter: maximum number of iterations
     :param (float, optional) tol: convergence tolerance
+    :param (bool, optional) save_history: return iterates
     """
     x = ca.vertcat(*ca.symvar(F1_expr))
 
@@ -33,6 +37,10 @@ def sqp_method(
 
     if x0 is None:
         x0 = np.zeros(m1)
+    if lbx is None:
+        lbx = -1 * ca.DM_inf(m1)
+    if ubx is None:
+        ubx = ca.DM_inf(m1)
 
     F1_fun = ca.Function("F1_fun", [x], [F1_expr])
     F2_fun = ca.Function("F2_fun", [x], [F2_expr])
@@ -61,6 +69,8 @@ def sqp_method(
     mu_k = np.zeros(m3)
     converged = False
     n_iter = max_iter
+    if save_history:
+        history = []
     for i in range(1, max_iter + 1):
         F2_xk, F3_xk = F2_fun(x_k), F3_fun(x_k)
         print(type(F3_xk))
@@ -82,10 +92,13 @@ def sqp_method(
             lbg=ca.vertcat(ca.GenDM_zeros(m2), ca.GenDM_zeros(m3)),
         )
         update = sol["x"].full().squeeze()
-        update_dual = sol['lam_g'].full().squeeze()
+        update_dual = sol["lam_g"].full().squeeze()
         x_k += update
         lam_k = update_dual[:m2].copy()
         mu_k = update_dual[m2:].copy()
+
+        if save_history:
+            history.append(x_k)
 
         if np.linalg.norm(update) < tol:
             converged = True
@@ -96,7 +109,7 @@ def sqp_method(
     if not converged:
         warnings.warn(f"SQP method did not converge in {n_iter} iterations")
 
-    return {
+    out = {
         "x": x_k,
         "lambda": lam_k,
         "mu": mu_k,
@@ -106,3 +119,8 @@ def sqp_method(
         "n_iter": n_iter,
         "converged": converged,
     }
+
+    if save_history:
+        out["history"] = history
+
+    return out
