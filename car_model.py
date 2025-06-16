@@ -7,6 +7,8 @@ from matplotlib import animation
 
 class CarModel:
     def __init__(self):
+        # final time
+        tf = ca.MX.sym("tf")
         # define states
         states = ca.MX.sym("states", 7)
         x, y, v, beta, psi, wz, delta = (
@@ -131,11 +133,19 @@ class CarModel:
         ddeltadt = wdelta
 
         self.car_dynamics = ca.vertcat(
-            dxdt, dydt, dvdt, dbetadt, dpsidt, dwzdt, ddeltadt
+            tf * dxdt,
+            tf * dydt,
+            tf * dvdt,
+            tf * dbetadt,
+            tf * dpsidt,
+            tf * dwzdt,
+            tf * ddeltadt,
         )
+        # multiply with tf to normalize time
 
         self.controls = controls
         self.states = states
+        self.tf = tf
         self.B = B
         self.L = 2  # example length of car
 
@@ -143,11 +153,12 @@ class CarModel:
         """
         Gives car model system
 
+        :return final_time:
         :return states:
         :return controls:
         :return car_dynamics:
         """
-        return self.states, self.controls, self.car_dynamics
+        return self.tf, self.states, self.controls, self.car_dynamics
 
     def trajectory(self, controls, x0, t_grid):
         """
@@ -161,7 +172,7 @@ class CarModel:
         """
         trajectory = []
         xk = x0
-        system = {"ode": self.car_dynamics, "x": self.states, "p": self.controls}
+        system = {"ode": self.car_dynamics, "x": self.states, "p": ca.vertcat(self.tf, self.controls)}
         if self.is_uniform_grid(t_grid):
             # if the grid is uniform, we only need one integrator and can save time and storage
             integrator = ca.integrator(
@@ -184,7 +195,7 @@ class CarModel:
         return np.array([np.array(x).squeeze() for x in trajectory])
 
     def smoothed_trajectory(
-        self, controls, x0, t_grid, refinement=10, return_grid=False
+        self, controls, x0, t_grid, final_time, refinement=10, return_grid=False
     ):
         """
         Compute smoothed trajectory of car
@@ -198,10 +209,11 @@ class CarModel:
         :return (optional) grid: refined grid
         :return trajectory: np.array with states at one point on the refined grid in each line
         """
+
         refined_grid = self.refine_grid(t_grid, refinement)
         trajectory = [x0]
         xk = x0
-        system = {"ode": self.car_dynamics, "x": self.states, "p": self.controls}
+        system = {"ode": self.car_dynamics, "x": self.states, "p": ca.vertcat(self.tf, self.controls)}
         control_idx = (
             0  # we need this so that we dont have to create a much bigger control array
         )
@@ -211,7 +223,7 @@ class CarModel:
                 f"integrator", "cvodes", system, 0, refined_grid[1] - refined_grid[0]
             )
             for grid_idx in range(refined_grid.size - 1):
-                res = integrator(x0=xk, p=controls[control_idx])
+                res = integrator(x0=xk, p=np.concatenate(([final_time], controls[control_idx])))
                 xk = res["xf"]
                 trajectory.append(xk)
                 if grid_idx % refinement == 0 and grid_idx != 0:
@@ -222,7 +234,7 @@ class CarModel:
                 # for not uniform time grid
                 t0, t1 = refined_grid[i], refined_grid[i + 1]
                 integrator = ca.integrator(f"integrator_{i}", "cvodes", system, t0, t1)
-                res = integrator(x0=xk, p=controls[control_idx])
+                res = integrator(x0=xk, p=np.concatenate(([final_time], controls[control_idx])))
                 xk = res["xf"]
                 trajectory.append(xk)
                 if grid_idx % refinement == 0 and grid_idx != 0:
@@ -239,6 +251,7 @@ class CarModel:
         controls,
         x0,
         t_grid,
+        final_time,
         track_params=None,
         track_limits=None,
         smoothing=1,
@@ -257,7 +270,7 @@ class CarModel:
             trajectory = self.trajectory(controls, x0, t_grid)
         else:
             t_grid, trajectory = self.smoothed_trajectory(
-                controls, x0, t_grid, refinement=smoothing, return_grid=True
+                controls, x0, t_grid, final_time, refinement=smoothing, return_grid=True
             )
         fig, ax = plt.subplots()
         if track_params is None:
@@ -282,6 +295,7 @@ class CarModel:
         controls,
         x0,
         t_grid,
+        final_time,
         track_params=None,
         track_limits=None,
         speedup=1,
@@ -314,7 +328,7 @@ class CarModel:
             trajectory = self.trajectory(controls, x0, t_grid)
         else:
             t_grid, trajectory = self.smoothed_trajectory(
-                controls, x0, t_grid, refinement=smoothing, return_grid=True
+                controls, x0, t_grid, final_time, refinement=smoothing, return_grid=True
             )
         fig, ax = plt.subplots()
         if track_params is None:
@@ -430,6 +444,40 @@ class CarModel:
         )
 
         return (Pl, Pu)
+
+    def get_state_bounds(self, h1, h2, h3, h4):
+        Pl, Pu = self.make_track(h1, h2, h3, h4)
+        lbx = -1 * ca.inf
+        ubx = ca.inf
+        lby = Pl - self.B / 2
+        uby = Pu + self.B / 2
+        lbv = 0
+        ubv = ca.inf  # theoretically :)
+        lb_beta = -1 * ca.inf
+        ub_beta = ca.inf
+        lb_psi = -1 * ca.inf
+        ub_psi = ca.inf
+        lb_wz = -1 * ca.inf
+        ub_wz = ca.inf
+        lb_delta = -1 * ca.inf
+        ub_delta = ca.inf
+        lb_states = ca.vertcat(lbx, lby, lbv, lb_beta, lb_psi, lb_wz, lb_delta)
+        ub_states = ca.vertcat(ubx, uby, ubv, ub_beta, ub_psi, ub_wz, ub_delta)
+        return (lb_states, ub_states)
+
+    def get_controls_bounds(self, gear):
+        """
+        We consider a fixed gear problem for simplicity
+        """
+        lb_steer_angle = -0.5
+        ub_steer_angle = 0.5
+        lb_break = 0
+        ub_break = 1.5 * 1e4
+        lb_acc = 0
+        ub_acc = 1
+        lbu = ca.vertcat(lb_steer_angle, lb_break, lb_acc, gear)
+        ubu = ca.vertcat(ub_steer_angle, ub_break, ub_acc, gear)
+        return (lbu, ubu)
 
     @staticmethod
     def is_uniform_grid(grid):
