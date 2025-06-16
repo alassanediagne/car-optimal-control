@@ -160,7 +160,7 @@ class CarModel:
         """
         return self.tf, self.states, self.controls, self.car_dynamics
 
-    def trajectory(self, controls, x0, t_grid):
+    def trajectory(self, controls, x0, t_grid, final_time):
         """
         Compute trajectory of car
 
@@ -179,7 +179,7 @@ class CarModel:
                 f"integrator", "cvodes", system, 0, t_grid[1] - t_grid[0]
             )
             for i in range(t_grid.size - 1):
-                res = integrator(x0=xk, p=controls[i])
+                res = integrator(x0=xk, p=np.concatenate((final_time,controls[i])))
                 xk = res["xf"]
                 trajectory.append(xk)
 
@@ -188,7 +188,7 @@ class CarModel:
                 # for not uniform time grid
                 t0, t1 = t_grid[i], t_grid[i + 1]
                 integrator = ca.integrator(f"integrator_{i}", "cvodes", system, t0, t1)
-                res = integrator(x0=xk, p=controls[i])
+                res = integrator(x0=xk, p=np.concatenate((final_time,controls[i])))
                 xk = res["xf"]
                 trajectory.append(xk)
 
