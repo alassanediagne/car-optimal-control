@@ -380,12 +380,12 @@ class CarModel:
             line.set_ydata(y_until_now)
             ax.add_patch(car)
             ax.set_title(
-                f"Time: {round(t_grid[frame],3)}s - Velocity {round(trajectory[frame,2],3)} m/s",
+                f"Time: {round(final_time*t_grid[frame],3)}s - Velocity {round(trajectory[frame,2],3)} m/s",
             )
             return (line,)
 
         dt = np.diff(t_grid, prepend=t_grid[0])
-        avg_dt_ms = np.mean(dt) * 1000 / speedup
+        avg_dt_ms = np.mean(dt) * 1000 * final_time / speedup
         fps = 1000 / avg_dt_ms
 
         ani = animation.FuncAnimation(
