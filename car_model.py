@@ -9,6 +9,9 @@ from matplotlib.patches import Rectangle
 
 class CarModel:
     def __init__(self):
+        """
+        Create car model instance
+        """
         # final time
         tf = ca.MX.sym("tf")
         # define states
@@ -153,7 +156,7 @@ class CarModel:
 
     def get_system(self):
         """
-        Gives car model system
+        Gives car model system (symbolic!)
 
         :return final_time:
         :return states: x, y, v, beta, psi, wz, delta
@@ -174,14 +177,18 @@ class CarModel:
         """
         trajectory = []
         xk = x0
-        system = {"ode": self.car_dynamics, "x": self.states, "p": ca.vertcat(self.tf, self.controls)}
+        system = {
+            "ode": self.car_dynamics,
+            "x": self.states,
+            "p": ca.vertcat(self.tf, self.controls),
+        }
         if self.is_uniform_grid(t_grid):
             # if the grid is uniform, we only need one integrator and can save time and storage
             integrator = ca.integrator(
                 f"integrator", "cvodes", system, 0, t_grid[1] - t_grid[0]
             )
             for i in range(t_grid.size - 1):
-                res = integrator(x0=xk, p=np.concatenate((final_time,controls[i])))
+                res = integrator(x0=xk, p=np.concatenate((final_time, controls[i])))
                 xk = res["xf"]
                 trajectory.append(xk)
 
@@ -190,7 +197,7 @@ class CarModel:
                 # for not uniform time grid
                 t0, t1 = t_grid[i], t_grid[i + 1]
                 integrator = ca.integrator(f"integrator_{i}", "cvodes", system, t0, t1)
-                res = integrator(x0=xk, p=np.concatenate((final_time,controls[i])))
+                res = integrator(x0=xk, p=np.concatenate((final_time, controls[i])))
                 xk = res["xf"]
                 trajectory.append(xk)
 
@@ -205,6 +212,7 @@ class CarModel:
         :param (np.ndarray) controls: controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
         :param (np.ndarray) x0: initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
         :param (np.ndarray) t_grid: time grid
+        :param (float) final_time: Final time the car needs to complete the track
         :param (int) refinement: number of additional integration nodes per interval
         :param return_grid: return refined grid as well
 
@@ -215,7 +223,11 @@ class CarModel:
         refined_grid = self.refine_grid(t_grid, refinement)
         trajectory = [x0]
         xk = x0
-        system = {"ode": self.car_dynamics, "x": self.states, "p": ca.vertcat(self.tf, self.controls)}
+        system = {
+            "ode": self.car_dynamics,
+            "x": self.states,
+            "p": ca.vertcat(self.tf, self.controls),
+        }
         control_idx = (
             0  # we need this so that we dont have to create a much bigger control array
         )
@@ -225,7 +237,9 @@ class CarModel:
                 f"integrator", "cvodes", system, 0, refined_grid[1] - refined_grid[0]
             )
             for grid_idx in range(refined_grid.size - 1):
-                res = integrator(x0=xk, p=np.concatenate(([final_time], controls[control_idx])))
+                res = integrator(
+                    x0=xk, p=np.concatenate(([final_time], controls[control_idx]))
+                )
                 xk = res["xf"]
                 trajectory.append(xk)
                 if grid_idx % refinement == 0 and grid_idx != 0:
@@ -236,7 +250,9 @@ class CarModel:
                 # for not uniform time grid
                 t0, t1 = refined_grid[i], refined_grid[i + 1]
                 integrator = ca.integrator(f"integrator_{i}", "cvodes", system, t0, t1)
-                res = integrator(x0=xk, p=np.concatenate(([final_time], controls[control_idx])))
+                res = integrator(
+                    x0=xk, p=np.concatenate(([final_time], controls[control_idx]))
+                )
                 xk = res["xf"]
                 trajectory.append(xk)
                 if grid_idx % refinement == 0 and grid_idx != 0:
@@ -258,11 +274,24 @@ class CarModel:
         track_limits=None,
         smoothing=1,
         filename=None,
-        title = None
+        title=None,
     ):
+        """
+        Plot car trajectory given controls
+
+        :param (np.ndarray) controls: controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
+        :param (np.ndarray) x0: initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
+        :param (np.ndarray) t_grid: time grid (range [0,1])
+        :param (float) final_time: Final time the car needs to complete the track
+        :param (tuple, optional) track_params: h1,h2,h3,h4 that define the track
+        :param (tuple, optional) track_limits: limits of the track on the horizontal axis
+        :param (int) smoothing: smoothes the trajectory by decreasing the size of the integration interval
+        :param (string) filename: filename for rendered video (must end in .mp4!)
+        :param (string, optional) title: Add title
+        """
         if track_params is not None:
             assert track_limits is not None, "boundary limits needed"
-            Pl, Pu = self.make_track(self.states[0],*track_params)
+            Pl, Pu = self.make_track(self.states[0], *track_params)
             xs = np.linspace(*track_limits, 500)
             Pl_func = ca.Function("Pl", [self.states], [Pl])
             Pu_func = ca.Function("Pu", [self.states], [Pu])
@@ -305,23 +334,25 @@ class CarModel:
         speedup=1,
         smoothing=1,
         filename="car_animation.mp4",
-        title = None
+        title=None,
     ):
         """
         Animate car trajectory given controls
 
         :param (np.ndarray) controls: controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
         :param (np.ndarray) x0: initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
-        :param (np.ndarray) t_grid: time grid
+        :param (np.ndarray) t_grid: time grid (range [0,1])
+        :param (float) final_time: Final time the car needs to complete the track
         :param (tuple) track_params: h1,h2,h3,h4 that define the track
         :param (tuple) track_limits: limits of the track on the horizontal axis
         :param (float) speedup: factor to speed video up by
         :param (int) smoothing: smoothes the trajectory by decreasing the size of the integration interval
         :param (string) filename: filename for rendered video (must end in .mp4!)
+        :param (string, optional) title: Add title
         """
         if track_params is not None:
             assert track_limits is not None, "boundary limits needed"
-            Pl, Pu = self.make_track(self.states[0],*track_params)
+            Pl, Pu = self.make_track(self.states[0], *track_params)
             xs = np.linspace(*track_limits, 500)
             Pl_func = ca.Function("Pl", [self.states], [Pl])
             Pu_func = ca.Function("Pu", [self.states], [Pu])
@@ -330,7 +361,7 @@ class CarModel:
 
         self.L = 2
         if smoothing == 1:
-            trajectory = self.trajectory(controls, x0, t_grid)
+            trajectory = self.trajectory(controls, x0, t_grid, final_time)
         else:
             t_grid, trajectory = self.smoothed_trajectory(
                 controls, x0, t_grid, final_time, refinement=smoothing, return_grid=True
@@ -387,7 +418,8 @@ class CarModel:
             line.set_xdata(x_until_now)
             line.set_ydata(y_until_now)
             ax.set_title(
-                title + f"  Time: {round(final_time*t_grid[frame],3)}s - Velocity {round(trajectory[frame,2],3)} m/s",
+                title
+                + f"  Time: {round(final_time*t_grid[frame],3)}s - Velocity {round(trajectory[frame,2],3)} m/s",
             )
             return (line,)
 
@@ -412,20 +444,29 @@ class CarModel:
         speedup=1,
         smoothing=1,
         filename="car_animation.mp4",
-        title = None
+        title=None,
     ):
         """
-        Animate a race between a number of cars
-        :param (list) controls: list of controls
-        :param (list) x0: list of starting points
-        :param (list) t_grids: list of time grids
-        :param (list) final_times: list of final times
-        :param (list) labels: list of labels
+        Animate a race between a number of cars. Each of the required arguments has to be a list of size n_cars, 
+        containing the approriate information for self.animate
+
+        :param (list) controls: list of controls (in this order!) steering angle velocity, breaking force, breaking_force, acceleration, gear
+        :param (list) x0: list of initial states (in this order!) x0, y0, v0, beta0, psi0, wz0, delta0
+        :param (list) t_grids: list of time grids (range [0,1])
+        :param (list) final_times: list of final times each car needs to complete the track
+        :param (tuple) track_params: h1,h2,h3,h4 that define the track
+        :param (tuple) track_limits: limits of the track on the horizontal axis
+        :param (float) speedup: factor to speed video up by
+        :param (int) smoothing: smoothes the trajectories by decreasing the size of the integration interval
+        :param (string) filename: filename for rendered video (must end in .mp4!)
+        :param (string, optional) title: Add title
         """
         assert len(controls) == len(labels)
 
-        assert track_limits is not None and track_params is not None, "need track to race"
-        Pl, Pu = self.make_track(self.states[0],*track_params)
+        assert (
+            track_limits is not None and track_params is not None
+        ), "need track to race"
+        Pl, Pu = self.make_track(self.states[0], *track_params)
         xs = np.linspace(*track_limits, 500)
         Pl_func = ca.Function("Pl", [self.states], [Pl])
         Pu_func = ca.Function("Pu", [self.states], [Pu])
@@ -437,13 +478,20 @@ class CarModel:
         # get trajectories for all cars
         raw_t_grids, raw_trajectories = [], []
 
-        for controls_, t_grid_, final_time_, x0_ in zip(controls, t_grids, final_times, x0):
+        for controls_, t_grid_, final_time_, x0_ in zip(
+            controls, t_grids, final_times, x0
+        ):
             if smoothing == 1:
                 traj = self.trajectory(controls_, x0_, t_grid_)
                 t_real = t_grid_ * final_time_
             else:
                 t_grid_refined, traj = self.smoothed_trajectory(
-                    controls_, x0_, t_grid_, final_time_, refinement=smoothing, return_grid=True
+                    controls_,
+                    x0_,
+                    t_grid_,
+                    final_time_,
+                    refinement=smoothing,
+                    return_grid=True,
                 )
                 t_real = t_grid_refined * final_time_
             raw_t_grids.append(t_real)
@@ -457,10 +505,10 @@ class CarModel:
         for t_src, traj in zip(raw_t_grids, raw_trajectories):
             new_traj = np.zeros((len(common_t), traj.shape[1]))
             for i in range(traj.shape[1]):
-                f = interp1d(t_src, traj[:, i], kind='linear', fill_value="extrapolate")
+                f = interp1d(t_src, traj[:, i], kind="linear", fill_value="extrapolate")
                 new_traj[:, i] = f(common_t)
             trajectories.append(new_traj)
-    
+
         fig, ax = plt.subplots()
         x_min, x_max = track_limits
         y_max, y_min = np.max(track_upper) + 1, np.min(track_lower) - 1
@@ -480,20 +528,22 @@ class CarModel:
 
         for trajectory, label, c in zip(trajectories, labels, colors):
             ax.plot(trajectory[:, 0], trajectory[:, 1], linestyle="--", color="gray")
-            l = ax.plot(trajectory[0, 0], trajectory[0, 1], color=c, label = label)[0]
+            l = ax.plot(trajectory[0, 0], trajectory[0, 1], color=c, label=label)[0]
             lines.append(l)
-            cars.append(plt.Rectangle(
-            (
-                trajectory[0, 0] - (car_length / 2),
-                trajectory[0, 1] - (car_width / 2),
-            ),
-            car_length,
-            car_width,
-            angle=trajectory[0, 4],
-            rotation_point="center",
-            color="k",
-            fill=True,
-        ))
+            cars.append(
+                plt.Rectangle(
+                    (
+                        trajectory[0, 0] - (car_length / 2),
+                        trajectory[0, 1] - (car_width / 2),
+                    ),
+                    car_length,
+                    car_width,
+                    angle=trajectory[0, 4],
+                    rotation_point="center",
+                    color="k",
+                    fill=True,
+                )
+            )
 
         ax.plot(xs, track_lower, color="k")
         ax.plot(xs, track_upper, color="k")
@@ -515,9 +565,10 @@ class CarModel:
                 line.set_xdata(x_until_now)
                 line.set_ydata(y_until_now)
             ax.set_title(
-                    title + f"  Time: {round(common_t[frame],3)}s",
-               )
+                title + f"  Time: {round(common_t[frame],3)}s",
+            )
             return lines + cars
+
         ax.legend()
         avg_dt_ms = np.mean(np.diff(common_t, prepend=common_t[0])) * 1000 / speedup
 
@@ -527,7 +578,6 @@ class CarModel:
             fig, update, frames=len(common_t), interval=avg_dt_ms, blit=True
         )
         ani.save(filename, writer="ffmpeg", fps=fps)
-        
 
     def make_track(self, x, h1, h2, h3, h4):
         Pl = ca.if_else(
@@ -583,7 +633,7 @@ class CarModel:
     def get_state_bounds(self):
         lbx = -1 * ca.inf
         ubx = ca.inf
-        lby = - ca.inf # set y boundaries by inequality constraints
+        lby = -ca.inf  # set y boundaries by inequality constraints
         uby = ca.inf
         lbv = 0
         ubv = ca.inf  # theoretically :)
