@@ -6,6 +6,7 @@ def ms_ocp(rhs      : Dict[str, ca.MX],
            nx       : int,
            N        : int,
            T        : float,
+           tf,
            nu       : int,
            x0_sym   : Optional[ca.MX] = None) -> Dict[str, Any]:
     """
@@ -44,7 +45,7 @@ def ms_ocp(rhs      : Dict[str, ca.MX],
         Uk = ca.MX.sym(f'U_{k}', nu)
         U.append(Uk)
 
-        Fk = F(x0=X[k], p=Uk)
+        Fk = F(x0=X[k], p=ca.vertcat(Uk, tf))
         J += Fk['qf']
 
         Xk_next = ca.MX.sym(f'X_{k+1}', nx)
@@ -53,7 +54,7 @@ def ms_ocp(rhs      : Dict[str, ca.MX],
 
     # package the outputs. all X and U are decision variables.
     # the matching conditions are (as always) some of the later equality constraints
-    w  = ca.vertcat(*(X + U))
+    w  = ca.vertcat(*(X + U + [tf]))
     g_ = ca.vertcat(*g) if g else ca.MX()
 
     return dict(w=w, X=X, U=U, J=J, g=g_)
@@ -68,8 +69,7 @@ def add_constraints(ms_data              : Dict[str, Any],
                     u_bounds             : Optional[Tuple[Sequence, Sequence]] = None,
                     extra_eq             : Optional[Sequence[ca.MX]] = None,
                     extra_ineq           : Optional[Sequence[ca.MX]] = None,
-                    x0_val               : Optional[Sequence] = None,
-                    guess_center         : float = 0.0
+                    x0_val               : Optional[Sequence] = None
                    ) -> Dict[str, Any]:
     """
     Derive bound vectors and augment equality / inequality constraints.
@@ -156,9 +156,6 @@ def add_constraints(ms_data              : Dict[str, Any],
     lbx += _lower_expand(u_lb, nu, len(U))
     ubx += _upper_expand(u_ub, nu, len(U))
 
-    # initial guesses
-    w0 = [guess_center] * len(lbx)
-
     # equality and inequality constraints
     g_all = [ms_data['g']]
     if extra_eq:
@@ -175,8 +172,8 @@ def add_constraints(ms_data              : Dict[str, Any],
         lbh, ubh = [], []
     else:
         # default: inequality form  h(x) <= 0
-        lbh = [-ca.inf] * h_all.size1()
-        ubh = [0.0]     * h_all.size1()
+        lbh = [0.] * h_all.size1()
+        ubh = [ca.inf]     * h_all.size1()
 
     g_total = ca.vertcat(g_all, h_all)
     lbg += lbh
@@ -185,7 +182,12 @@ def add_constraints(ms_data              : Dict[str, Any],
     # return
     prob = dict(f=ms_data['J'], x=w, g=g_total)
 
-    return dict(prob=prob, w0=w0, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
+    lbx.append(0.1)     # min time horizon
+    ubx.append(1000.0)   # max time horizon
+    w0.append(50.0)     # initial guess
+
+
+    return dict(prob=prob, lbx=lbx, ubx=ubx, lbg=lbg, ubg=ubg)
 
 def unpack_ms_solution(ms_data, sol):
     """
