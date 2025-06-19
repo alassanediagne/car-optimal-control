@@ -540,7 +540,7 @@ class CarModel:
                     car_width,
                     angle=trajectory[0, 4],
                     rotation_point="center",
-                    color="k",
+                    color=c,
                     fill=True,
                 )
             )
