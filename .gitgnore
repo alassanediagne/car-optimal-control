@@ -1,0 +1,6 @@
+venv_node
+.ipynb_checkpoints
+__pycache__
+.vscode
+/.DS_STORE/
+Project2/animations
